@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.sqlite3
+.venv/
+venv/
+env/
+.env
+.idea/
+.vscode/
+media/
+*.zip
+*.rar
+agritech_backend/disease_images/
