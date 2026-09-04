@@ -1,6 +1,7 @@
 import base64
 from django.core.files.base import ContentFile
 from rest_framework import views, response, status , viewsets
+from risk_engine.risk_score_generator import calculate_risk_score
 from django.shortcuts import get_object_or_404
 from .models import (
     Farm,
@@ -82,23 +83,41 @@ class RiskScoreViewSet(viewsets.ModelViewSet):
 
 class RiskScoreView(views.APIView):
     def get(self, request, farm_id, disease):
-        risk_score = RiskScore.objects.filter(
-            farm_id=farm_id,
-            disease=disease
-        ).order_by("-calculated_at").first()
 
-        if not risk_score:
+        latest_reading = SensorReading.objects.filter(
+            sensor_node__farm_id=farm_id
+        ).order_by("-recorded_at").first()
+
+        if not latest_reading:
             return response.Response(
-                {"error": "Risk score not found."},
+                {"error": "No sensor readings found for this farm."},
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        input_details = {
+            "temp_min": latest_reading.temperature,
+            "temp_max": latest_reading.temperature,
+            "rh_morning": latest_reading.humidity,
+            "rh_evening": latest_reading.humidity,
+            "soil_moisture": latest_reading.soil_moisture,
+        }
+
+        try:
+            result = calculate_risk_score(
+                disease,
+                input_details
+            )
+
+        except ValueError as e:
+            return response.Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         return response.Response({
-            "farm_id": risk_score.farm_id,
-            "disease": risk_score.disease,
-            "score": risk_score.score,
-            "band": risk_score.band,
-            "window_start": risk_score.window_start,
-            "window_end": risk_score.window_end,
-            "calculated_at": risk_score.calculated_at,
+            "farm_id": farm_id,
+            "disease": result["disease"],
+            "score": result["risk_score"],
+            "band": result["risk_band"],
+            "advisory": result.get("agronomic_advisory"),
         })
