@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -81,12 +82,16 @@ WSGI_APPLICATION = 'agritech_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'agritech_backend',
-        'USER': 'root',
-        'PASSWORD': '@khiwan123',
-        'HOST' : '127.0.0.1',
-        'PORT' : '3306',
-
+        'NAME': 'defaultdb',
+        'USER': 'avnadmin',
+        'PASSWORD': os.environ.get('DB_PASSWORD'),
+        'HOST': 'mysql-1ee70929-gurshankaur2006-c1f7.c.aivencloud.com',
+        'PORT': '27587',
+        'OPTIONS': {
+            'ssl': {
+                'ssl_mode': 'REQUIRED',
+            },
+        },
     }
 }
 

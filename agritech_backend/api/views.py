@@ -1,6 +1,13 @@
 import base64
 from django.core.files.base import ContentFile
 from rest_framework import views, response, status , viewsets
+from drf_spectacular.utils import extend_schema
+import numpy as np
+import onnxruntime as ort
+from PIL import Image
+import io
+import os
+from django.conf import settings
 from risk_engine.risk_score_generator import calculate_risk_score
 from django.shortcuts import get_object_or_404
 from .models import (
@@ -19,6 +26,7 @@ from .serializers import (
     TreatmentRecommendationSerializer,
     DiseasePredictionSerializer,
     RiskScoreSerializer,
+    PredictSerializer,
 )
 
 
@@ -46,7 +54,11 @@ class DiseasePredictionViewSet(viewsets.ModelViewSet):
     queryset = DiseasePrediction.objects.all()
     serializer_class = DiseasePredictionSerializer
 
-
+@extend_schema(
+    request={
+        "multipart/form-data": PredictSerializer
+    }
+)
 class PredictView(views.APIView):
     def post(self, request):
         image_data = request.data.get("image")
@@ -59,21 +71,51 @@ class PredictView(views.APIView):
 
         try:
             format, imgstr = image_data.split(";base64,")
-            ext = format.split("/")[-1]
+            image_bytes = base64.b64decode(imgstr)
 
-            image_file = ContentFile(
-                base64.b64decode(imgstr),
-                name=f"prediction.{ext}"
+            # Convert image to model input
+            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            image = image.resize((224, 224))
+
+            image_array = np.array(image, dtype=np.float32) / 255.0
+            image_array = np.transpose(image_array, (2, 0, 1))
+            image_array = np.expand_dims(image_array, axis=0)
+
+            # Load ONNX model
+            model_path = os.path.join(
+                settings.BASE_DIR.parent,
+                "weights",
+                "weights_final_.onnx"
             )
 
+            session = ort.InferenceSession(model_path)
+
+            input_name = session.get_inputs()[0].name
+            output = session.run(
+                None,
+                {input_name: image_array}
+            )[0][0]
+
+            predicted_index = int(np.argmax(output))
+
+            class_names = {
+                0: "bacterial_spot",
+                1: "early_blight",
+                2: "late_blight",
+                3: "septoria_leaf_spot",
+            }
+
+            predicted_label = class_names[predicted_index]
+
             return response.Response({
-                "message": "Image received successfully.",
-                "format": ext
+                "predicted_label": predicted_label,
+                "predicted_index": predicted_index,
+                "raw_output": output.tolist(),
             })
 
-        except Exception:
+        except Exception as e:
             return response.Response(
-                {"error": "Invalid Base64 image."},
+                {"error": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
         

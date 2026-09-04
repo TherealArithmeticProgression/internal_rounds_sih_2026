@@ -43,3 +43,6 @@ class RiskScoreSerializer(serializers.ModelSerializer):
     class Meta:
         model = RiskScore
         fields = "__all__"
+
+class PredictSerializer(serializers.Serializer):
+    image = serializers.ImageField(required=True)
