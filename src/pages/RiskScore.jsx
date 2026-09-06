@@ -41,6 +41,8 @@ function RiskScore() {
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{current.message}</p>
       </div>
 
+      <button id="connectBtn">Connect to Sensor Node</button>
+      <div id="sensorDataDisplay">Waiting for data...</div>
       <div className="card">
         <div className="card-label">Sensor Readings</div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem' }}>
