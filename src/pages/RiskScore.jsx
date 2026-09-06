@@ -57,7 +57,10 @@ function RiskScore() {
       setHumidity(dataArray[1]);
       setMoisture(dataArray[2]);
       
-      setStatusText('Connected and synced!');
+      setStatusText('Data syced!Connection Closed');
+      if(device.gatt.connected) {
+        device.gatt.disconnect();
+      }
 
     } catch (error) {
       console.error('Connection failed!', error);
