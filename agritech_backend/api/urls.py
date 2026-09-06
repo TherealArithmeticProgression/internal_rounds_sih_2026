@@ -15,7 +15,7 @@ from .views import (
 
 router = DefaultRouter()
 
-router.register("farms", FarmViewSet)
+router.register("farms", FarmViewSet, basename="farm")
 router.register("sensors", SensorNodeViewSet)
 router.register("readings", SensorReadingViewSet)
 router.register("treatments", TreatmentRecommendationViewSet)
