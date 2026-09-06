@@ -8,9 +8,12 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       devOptions: {
-    enabled: true
-  },
-      
+        enabled: true
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,onnx}'],
+        maximumFileSizeToCacheInBytes: 20000000 // 20MB to allow 16MB onnx file
+      },
       manifest: {
         name: 'Crop Disease Predictor',
         short_name: 'CropGuard',

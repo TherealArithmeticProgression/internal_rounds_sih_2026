@@ -1,8 +1,43 @@
 import uuid
+import hashlib
 
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
+
+class FarmerProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    phone_number = models.CharField(max_length=15, unique=True)
+    preferred_language = models.CharField(max_length=10, default='hi')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} - {self.phone_number}"
+
+class FarmerMemory(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='memories')
+    item_type = models.CharField(max_length=50) # 'fertilizer', 'manure', 'irrigation'
+    item_name = models.CharField(max_length=255)
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.item_name} ({self.item_type})"
+
+
+class OTPChallenge(models.Model):
+    """Short-lived, one-use verification challenge. Never persist the OTP itself."""
+    phone_hash = models.CharField(max_length=64, db_index=True)
+    otp_hash = models.CharField(max_length=128)
+    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+    expires_at = models.DateTimeField(db_index=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    @staticmethod
+    def hash_phone(phone_number):
+        return hashlib.sha256(phone_number.encode("utf-8")).hexdigest()
 
 
 class Farm(models.Model):
@@ -106,6 +141,9 @@ class SensorReading(models.Model):
         blank=True
     )
 
+    # Rain since the preceding reading, in millimetres. Required by tomato risk rules.
+    rainfall_mm = models.FloatField(default=0.0)
+
     recorded_at = models.DateTimeField(
         default=timezone.now,
         db_index=True
@@ -140,6 +178,14 @@ class TreatmentRecommendation(models.Model):
     )
 
     description_pa = models.TextField(
+        blank=True
+    )
+
+    description_bn = models.TextField(
+        blank=True
+    )
+
+    description_ta = models.TextField(
         blank=True
     )
 

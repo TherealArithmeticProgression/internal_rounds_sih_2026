@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 from pathlib import Path
 import os
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,10 +22,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-b%v%bc7vnmvk5^8y4x)sgr=j9oq(c7@y5k*j*t)a3ya4641und'
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
+
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "development-only-change-me"
+    else:
+        raise RuntimeError("DJANGO_SECRET_KEY must be configured when DJANGO_DEBUG is false")
 
 ALLOWED_HOSTS = [
     "internal-rounds-sih-2026.onrender.com",
@@ -45,6 +52,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'api',
     'rest_framework',
+    'rest_framework_simplejwt.token_blacklist',
     'drf_spectacular',
     
 ]
@@ -146,7 +154,29 @@ MAILERS = {
     },
 }
 
-CORS_ALLOW_ALL_ORIGINS=True
+CORS_ALLOWED_ORIGINS = [
+    origin.strip() for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=14),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+}
+
+OTP_TTL_SECONDS = int(os.environ.get("OTP_TTL_SECONDS", "300"))
+OTP_MAX_ATTEMPTS = int(os.environ.get("OTP_MAX_ATTEMPTS", "5"))
+OTP_MAX_REQUESTS_PER_PHONE_HOUR = int(os.environ.get("OTP_MAX_REQUESTS_PER_PHONE_HOUR", "5"))
+OTP_MAX_REQUESTS_PER_IP_HOUR = int(os.environ.get("OTP_MAX_REQUESTS_PER_IP_HOUR", "20"))
+OTP_SMS_PROVIDER = os.environ.get("OTP_SMS_PROVIDER", "disabled")
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "")
+AUTH_COOKIE_SECURE = not DEBUG
+AUTH_COOKIE_SAMESITE = os.environ.get("AUTH_COOKIE_SAMESITE", "Lax")
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
@@ -156,4 +186,8 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    "DEFAULT_THROTTLE_RATES": {
+        "otp_request": "20/hour",
+        "otp_verify": "30/hour",
+    },
 }
