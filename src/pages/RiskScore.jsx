@@ -29,7 +29,7 @@ function RiskScore() {
     try {
       setStatusText('Requesting Bluetooth Device...');
       const device = await navigator.bluetooth.requestDevice({
-        filters: [{ name: 'AgriNode' }],
+        acceptAllDevices: true,
         optionalServices: [SERVICE_UUID]
       });
 
