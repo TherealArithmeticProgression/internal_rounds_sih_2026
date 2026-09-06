@@ -10,6 +10,7 @@ from .views import (
     RiskScoreViewSet,
     PredictView,
     RiskScoreView,
+    DiseaseOutbreakView
 )
 
 router = DefaultRouter()
@@ -21,8 +22,13 @@ router.register("treatments", TreatmentRecommendationViewSet)
 router.register("predictions", DiseasePredictionViewSet)
 router.register("risk-scores", RiskScoreViewSet)
 
+from .auth_views import RequestOTPView, VerifyOTPView
+
 urlpatterns = router.urls + [
     path("predict/", PredictView.as_view()),
+    path("auth/request-otp/", RequestOTPView.as_view(), name="request_otp"),
+    path("auth/verify-otp/", VerifyOTPView.as_view(), name="verify_otp"),
+    path("outbreaks/", DiseaseOutbreakView.as_view(), name="outbreaks"),
     path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path(

@@ -8,8 +8,10 @@ from PIL import Image
 import io
 import os
 from django.conf import settings
-from risk_engine.risk_score_generator import calculate_risk_score
+from risk_engine.tomato_risk_engine import Disease, SensorReading as TomatoSensorReading, calculate_all_risks, calculate_risk
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from datetime import timedelta
 from .models import (
     Farm,
     SensorNode,
@@ -30,29 +32,50 @@ from .serializers import (
 )
 
 
+from rest_framework.permissions import IsAuthenticated
+
 class FarmViewSet(viewsets.ModelViewSet):
-    queryset = Farm.objects.all()
+    permission_classes = [IsAuthenticated]
     serializer_class = FarmSerializer
+
+    def get_queryset(self):
+        return Farm.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 
 class SensorNodeViewSet(viewsets.ModelViewSet):
-    queryset = SensorNode.objects.all()
+    permission_classes = [IsAuthenticated]
     serializer_class = SensorNodeSerializer
+
+    def get_queryset(self):
+        return SensorNode.objects.filter(farm__user=self.request.user)
 
 
 class SensorReadingViewSet(viewsets.ModelViewSet):
-    queryset = SensorReading.objects.all()
+    permission_classes = [IsAuthenticated]
     serializer_class = SensorReadingSerializer
+
+    def get_queryset(self):
+        return SensorReading.objects.filter(sensor_node__farm__user=self.request.user)
 
 
 class TreatmentRecommendationViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     queryset = TreatmentRecommendation.objects.all()
     serializer_class = TreatmentRecommendationSerializer
 
+    http_method_names = ["get", "head", "options"]
+
+
 
 class DiseasePredictionViewSet(viewsets.ModelViewSet):
-    queryset = DiseasePrediction.objects.all()
+    permission_classes = [IsAuthenticated]
     serializer_class = DiseasePredictionSerializer
+
+    def get_queryset(self):
+        return DiseasePrediction.objects.filter(farm__user=self.request.user)
 
 @extend_schema(
     request={
@@ -60,6 +83,7 @@ class DiseasePredictionViewSet(viewsets.ModelViewSet):
     }
 )
 class PredictView(views.APIView):
+    permission_classes = [IsAuthenticated]
     def post(self, request):
         image_data = request.data.get("image")
 
@@ -120,46 +144,63 @@ class PredictView(views.APIView):
             )
         
 class RiskScoreViewSet(viewsets.ModelViewSet):
-    queryset = RiskScore.objects.all()
+    permission_classes = [IsAuthenticated]
     serializer_class = RiskScoreSerializer
 
+    def get_queryset(self):
+        return RiskScore.objects.filter(farm__user=self.request.user)
+
 class RiskScoreView(views.APIView):
+    permission_classes = [IsAuthenticated]
     def get(self, request, farm_id, disease):
 
-        latest_reading = SensorReading.objects.filter(
-            sensor_node__farm_id=farm_id
-        ).order_by("-recorded_at").first()
+        get_object_or_404(Farm, id=farm_id, user=request.user)
 
-        if not latest_reading:
+        readings = SensorReading.objects.filter(sensor_node__farm_id=farm_id, recorded_at__gte=timezone.now() - timedelta(days=7)).order_by("recorded_at")
+        samples = [
+            TomatoSensorReading(timestamp=row.recorded_at, temp_c=row.temperature, humidity_pct=row.humidity, rainfall_mm=row.rainfall_mm, soil_moisture_pct=row.soil_moisture or 0)
+            for row in readings if row.temperature is not None and row.humidity is not None
+        ]
+        if not samples:
             return response.Response(
-                {"error": "No sensor readings found for this farm."},
+                {"error": "No usable temperature and humidity readings found for this farm in the last 7 days."},
                 status=status.HTTP_404_NOT_FOUND
             )
-
-        input_details = {
-            "temp_min": latest_reading.temperature,
-            "temp_max": latest_reading.temperature,
-            "rh_morning": latest_reading.humidity,
-            "rh_evening": latest_reading.humidity,
-            "soil_moisture": latest_reading.soil_moisture,
-        }
-
         try:
-            result = calculate_risk_score(
-                disease,
-                input_details
-            )
-
-        except ValueError as e:
+            if disease == "all":
+                results = calculate_all_risks(samples)
+                return response.Response({"farm_id": farm_id, "window_hours": 168, "estimated_leaf_wetness": True, "risks": [{"disease": key.value, "score": value.score, "band": value.band.value, "explanation": value.explanation, "contributing_factors": value.contributing_factors} for key, value in results.items()]})
+            result = calculate_risk(Disease(disease), samples)
+        except ValueError:
             return response.Response(
-                {"error": str(e)},
+                {"error": "Unknown tomato disease risk type."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         return response.Response({
             "farm_id": farm_id,
-            "disease": result["disease"],
-            "score": result["risk_score"],
-            "band": result["risk_band"],
-            "advisory": result.get("agronomic_advisory"),
+            "window_hours": 168,
+            "estimated_leaf_wetness": True,
+            "disease": result.disease.value,
+            "score": result.score,
+            "band": result.band.value,
+            "explanation": result.explanation,
+            "contributing_factors": result.contributing_factors,
+        })
+from django.utils import timezone
+from datetime import timedelta
+from django.db.models import Count
+
+class DiseaseOutbreakView(views.APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        recent_date = timezone.now() - timedelta(days=7)
+        outbreaks = DiseasePrediction.objects.filter(
+            predicted_at__gte=recent_date, 
+            confidence__gte=0.8
+        ).values('predicted_label').annotate(count=Count('id')).order_by('-count')
+        
+        return response.Response({
+            "outbreaks": list(outbreaks),
+            "message": "Outbreak data retrieved successfully"
         })

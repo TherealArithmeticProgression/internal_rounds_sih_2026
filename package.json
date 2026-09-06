@@ -10,8 +10,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "dexie": "^4.4.5",
+    "i18next": "^26.4.2",
+    "idb": "^8.0.3",
+    "onnxruntime-web": "^1.29.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-i18next": "^17.0.13",
     "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
