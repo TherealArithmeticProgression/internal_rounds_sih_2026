@@ -1,64 +1,141 @@
-import { mockRiskScore } from '../mock/mockData'
-import { mockPrediction } from '../mock/mockData'
-// phir prediction = mockPrediction
-// phir riskLevel, riskScore, sensors sab mockRiskScore.xxx se lo
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { getRecentPredictions, savePrediction } from '../db/indexedDB'
+import { submitPredictionFeedback } from '../services/api'
+
+// Thresholds mirror the confidence-handling design from the team's plan:
+// high -> show the answer directly, medium -> show it plus alternatives,
+// low -> don't assert a diagnosis at all.
+function confidenceTier(confidence) {
+  if (confidence == null) return 'unknown';
+  if (confidence >= 75) return 'high';
+  if (confidence >= 45) return 'medium';
+  return 'low';
+}
+
 function Result() {
-  // Abhi dummy data hai - baad mein backend se real prediction aayega
-  const hasResult = true
-  const prediction = {
-    disease: 'Bacterial Leaf Blight',
-    confidence: 87,
-    treatment: 'Copper-based bactericide spray karein. Affected leaves hata dein aur field mein paani ka bahav sudharein.'
+  const { t } = useTranslation();
+  const [prediction, setPrediction] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [feedbackGiven, setFeedbackGiven] = useState(false);
+
+  useEffect(() => {
+    getRecentPredictions(1).then(([latest]) => {
+      setPrediction(latest || null);
+      setLoading(false);
+    });
+  }, []);
+
+  async function giveFeedback(wasCorrect) {
+    setFeedbackGiven(true);
+    if (!prediction) return;
+    try {
+      await submitPredictionFeedback(prediction.clientId, wasCorrect);
+    } catch {
+      // Offline -- stash the feedback locally so it isn't lost; a real sync
+      // pass can pick up any prediction whose feedback field is set but
+      // hasn't reached the server yet.
+    }
+    await savePrediction({ ...prediction, feedback: wasCorrect ? 'correct' : 'incorrect' });
   }
 
-  if (!hasResult) {
+  if (loading) return <div className="page page-enter" />;
+
+  if (!prediction) {
     return (
-      <div className="page">
-        <h1>Result</h1>
-        <p className="page-subtitle">Koi result available nahi hai</p>
+      <div className="page page-enter">
+        <h1>{t('result_title')}</h1>
+        <div className="empty-state">
+          <div className="empty-icon">📋</div>
+          <p>{t('no_result_title')}</p>
+          <p style={{ marginTop: '0.4rem' }}>{t('no_result_body')}</p>
+        </div>
+        <Link to="/camera" className="btn btn-primary" style={{ textDecoration: 'none', marginTop: '1rem' }}>
+          {t('go_to_scan')}
+        </Link>
+      </div>
+    );
+  }
+
+  const tier = confidenceTier(prediction.confidence);
+
+  if (tier === 'unknown') {
+    return (
+      <div className="page page-enter">
+        <h1>{t('result_title')}</h1>
         <div className="card">
-          <p>Pehle Scan tab se ek photo lein.</p>
+          <span className="status-pill status-pending pulse">⏳ {t('analysis_pending')}</span>
+          <p style={{ marginTop: '0.6rem', color: 'var(--ink-muted)' }}>{t('saved_pending')}</p>
         </div>
       </div>
-    )
+    );
   }
 
+  if (tier === 'low') {
+    return (
+      <div className="page page-enter">
+        <h1>{t('result_title')}</h1>
+        <div className="alert-banner level-moderate">
+          <span className="alert-icon">🔍</span>
+          <div>
+            <div className="alert-title">{t('low_confidence_title')}</div>
+            <div className="alert-body">{t('low_confidence_body')}</div>
+          </div>
+        </div>
+        <Link to="/camera" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+          {t('go_to_scan')}
+        </Link>
+      </div>
+    );
+  }
+
+  const fillColor = tier === 'high' ? 'var(--leaf)' : 'var(--turmeric)';
+
   return (
-    <div className="page">
-      <h1>Scan Result</h1>
-      <p className="page-subtitle">Latest scan ka analysis</p>
+    <div className="page page-enter">
+      <h1>{t('result_title')}</h1>
+      <p className="page-subtitle">{t('result_subtitle')}</p>
 
       <div className="card">
-        <div className="card-label">Detected Disease</div>
-        <h2 style={{ color: 'var(--accent)', margin: '0.3rem 0' }}>{prediction.disease}</h2>
+        <div className="card-label">{t('detected_disease')}</div>
+        <h2 style={{ color: 'var(--vine)', margin: '0.3rem 0' }}>{prediction.diseaseLabel}</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
-          <div style={{
-            flex: 1,
-            height: '8px',
-            background: 'var(--surface-light)',
-            borderRadius: '999px',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              width: `${prediction.confidence}%`,
-              height: '100%',
-              background: 'var(--accent)',
-              borderRadius: '999px'
-            }} />
+          <div className="confidence-track">
+            <div className="confidence-fill" style={{ width: `${prediction.confidence}%`, background: fillColor }} />
           </div>
           <strong style={{ fontSize: '0.9rem' }}>{prediction.confidence}%</strong>
         </div>
+
+        {tier === 'medium' && Array.isArray(prediction.topThree) && (
+          <div style={{ marginTop: '0.8rem' }}>
+            <div className="card-label">{t('medium_confidence_note')}</div>
+            {prediction.topThree.map((alt) => (
+              <div key={alt.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '0.2rem 0' }}>
+                <span>{alt.label}</span><span>{alt.confidence}%</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card">
-        <div className="card-label">Recommended Treatment</div>
+        <div className="card-label">{t('recommended_treatment')}</div>
         <p style={{ marginTop: '0.4rem' }}>{prediction.treatment}</p>
       </div>
 
-      <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
-        <button className="btn btn-secondary" style={{ flex: 1 }}>👍 Sahi Tha</button>
-        <button className="btn btn-secondary" style={{ flex: 1 }}>👎 Galat Tha</button>
-      </div>
+      {!feedbackGiven ? (
+        <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
+          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => giveFeedback(true)}>
+            👍 {t('correct')}
+          </button>
+          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => giveFeedback(false)}>
+            👎 {t('incorrect')}
+          </button>
+        </div>
+      ) : (
+        <p style={{ color: 'var(--ink-muted)', fontSize: '0.9rem', marginTop: '0.8rem' }}>{t('feedback_thanks')}</p>
+      )}
     </div>
   )
 }

@@ -1,135 +1,147 @@
-import React, { useState } from 'react';
-// import { mockRiskScore } from '../mock/mockData'
-// import { mockPrediction } from '../mock/mockData'
+import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { getCachedRiskScores, saveRiskScores, addSensorData, getPreference } from '../db/indexedDB';
+import { fetchRiskScores } from '../services/api';
 
+// Preserved exactly -- must match the ESP32 firmware's advertised service.
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 const CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
 
+const BAND_COLOR = {
+  low: 'var(--leaf)',
+  moderate: 'var(--turmeric)',
+  high: 'var(--tomato)',
+  critical: 'var(--tomato)',
+};
+
+/**
+ * Rough, deliberately simple client-side estimate from a single instant BLE
+ * reading -- NOT a replacement for the full rolling-trend risk_engine.py
+ * calculation that runs server-side once data syncs. Matches the "quick local
+ * estimate vs. full trend-based score" split agreed on for the BLE flow.
+ */
+function quickLocalEstimate(temp, humidity) {
+  const tempFactor = temp >= 20 && temp <= 30 ? 1 : 0.4;
+  const humidityFactor = humidity >= 80 ? 1 : humidity / 100;
+  return Math.round(Math.min(tempFactor * humidityFactor * 100, 100));
+}
+
 function RiskScore() {
-  // State variables for our live sensor data
-  const [temperature, setTemperature] = useState('--');
-  const [humidity, setHumidity] = useState('--');
-  const [moisture, setMoisture] = useState('--');
-  const [statusText, setStatusText] = useState('Waiting for data...');
+  const { t } = useTranslation();
+  const [riskScores, setRiskScores] = useState([]);
+  const [expanded, setExpanded] = useState(null);
+  const [temperature, setTemperature] = useState(null);
+  const [humidity, setHumidity] = useState(null);
+  const [moisture, setMoisture] = useState(null);
+  const [statusText, setStatusText] = useState('');
+  const [localEstimate, setLocalEstimate] = useState(null);
 
-  // Mock data for Risk Score (can be replaced by backend logic later)
-  const riskLevel = 'low'; // 'low' | 'medium' | 'high'
-  const riskScore = 22;
+  useEffect(() => {
+    async function load() {
+      const cached = await getCachedRiskScores();
+      setRiskScores(cached);
+      try {
+        const farmId = (await getPreference('farmId')) || 'default';
+        const fresh = await fetchRiskScores(farmId);
+        setRiskScores(fresh);
+        await saveRiskScores(fresh);
+      } catch {
+        // Offline -- cached scores above are what we show.
+      }
+    }
+    load();
+  }, []);
 
-  const levelConfig = {
-    low: { color: '#8bc34a', label: 'Low Risk', message: 'Abhi conditions safe hain' },
-    medium: { color: '#e0a72e', label: 'Medium Risk', message: 'Nazar rakho, conditions badal rahi hain' },
-    high: { color: '#d9534f', label: 'High Risk', message: 'Turant dhyan dein — outbreak ka khatra hai' }
-  };
-
-  const current = levelConfig[riskLevel];
-
-  // The Web Bluetooth connection function
   const connectToNode = async () => {
     try {
-      setStatusText('Requesting Bluetooth Device...');
+      setStatusText(t('connecting'));
       const device = await navigator.bluetooth.requestDevice({
         acceptAllDevices: true,
-        optionalServices: [SERVICE_UUID]
+        optionalServices: [SERVICE_UUID],
       });
-
-      setStatusText('Connecting to Node...');
       const server = await device.gatt.connect();
-
-      setStatusText('Getting Service...');
       const service = await server.getPrimaryService(SERVICE_UUID);
-
-      setStatusText('Getting Characteristic...');
       const characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
-
-      setStatusText('Reading Sensor Data...');
       const value = await characteristic.readValue();
-      
-      // Decode the raw bytes into a string
+
+      // NOTE: firmware currently sends comma-separated plaintext
+      // ("temp,humidity,moisture"). The wider hardware plan calls for CBOR --
+      // swap the decode below for a CBOR decoder once the firmware ships that.
       const decoder = new TextDecoder('utf-8');
-      const sensorString = decoder.decode(value);
-      
-      // Split "Temp,Humidity,Moisture" into individual variables
-      const dataArray = sensorString.split(',');
-      
-      // Update the React state to automatically re-render the UI
-      setTemperature(dataArray[0]);
-      setHumidity(dataArray[1]);
-      setMoisture(dataArray[2]);
-      
-      setStatusText('Data syced!Connection Closed');
-      if(device.gatt.connected) {
-        device.gatt.disconnect();
+      const [t1, h1, m1] = decoder.decode(value).split(',');
+      const t2 = parseFloat(t1), h2 = parseFloat(h1);
+
+      setTemperature(t1);
+      setHumidity(h1);
+      setMoisture(m1);
+      setStatusText('');
+
+      if (Number.isFinite(t2) && Number.isFinite(h2)) {
+        setLocalEstimate(quickLocalEstimate(t2, h2));
+        await addSensorData({ temperature: t2, humidity: h2, soil_moisture: parseFloat(m1) || null });
+        window.dispatchEvent(new CustomEvent('sensorDataUpdated'));
       }
 
+      if (device.gatt.connected) device.gatt.disconnect();
     } catch (error) {
-      console.error('Connection failed!', error);
-      setStatusText('Connection failed. Check console.');
+      setStatusText(t('camera_denied')); // reused generic "permission/connection failed" copy
     }
   };
 
   return (
-    <div className="page">
-      <h1>Risk Score</h1>
-      <p className="page-subtitle">Environment data ke basis par outbreak risk</p>
+    <div className="page page-enter">
+      <h1>{t('risk_title')}</h1>
+      <p className="page-subtitle">{t('risk_subtitle')}</p>
 
-      {/* Risk Score Dial Card */}
-      <div className="card" style={{ textAlign: 'center', padding: '2rem 1rem' }}>
-        <div style={{
-          width: '140px',
-          height: '140px',
-          borderRadius: '50%',
-          border: `10px solid ${current.color}`,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          margin: '0 auto 1rem'
-        }}>
-          <div style={{ fontSize: '2.2rem', fontWeight: 700 }}>{riskScore}</div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>/ 100</div>
+      {riskScores.length === 0 && (
+        <div className="empty-state">
+          <div className="empty-icon">📡</div>
+          <p>{t('no_sensor_data')}</p>
         </div>
-        <div style={{ color: current.color, fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.3rem' }}>
-          {current.label}
-        </div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{current.message}</p>
-      </div>
+      )}
 
-      {/* BLE Connection Area */}
-      <div style={{ textAlign: 'center', margin: '1rem 0' }}>
-        <button 
-          onClick={connectToNode} 
-          style={{ padding: '0.5rem 1rem', cursor: 'pointer', borderRadius: '5px' }}
-        >
-          Connect to Sensor Node
+      {riskScores.map((r) => (
+        <div key={r.disease} className="disease-row" onClick={() => setExpanded(expanded === r.disease ? null : r.disease)}>
+          <div className="disease-row-head">
+            <span className="disease-name">{r.disease}</span>
+            <span
+              className="disease-score-badge"
+              style={{ background: BAND_COLOR[r.band] + '22', color: BAND_COLOR[r.band] }}
+            >
+              {r.score}/100
+            </span>
+          </div>
+          {expanded === r.disease && (
+            <div className="disease-why">{r.explanation}</div>
+          )}
+        </div>
+      ))}
+
+      <div className="card" style={{ marginTop: '1rem' }}>
+        <div className="card-label">{t('connect_sensor')}</div>
+        <button className="btn btn-secondary" style={{ width: '100%', marginTop: '0.5rem' }} onClick={connectToNode}>
+          📡 {t('connect_sensor')}
         </button>
-        <div style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-          {statusText}
-        </div>
-      </div>
+        {statusText && <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>{statusText}</p>}
 
-      {/* Live Sensor Readings Card */}
-      <div className="card">
-        <div className="card-label">Sensor Readings</div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem' }}>
-          <span>🌡️ Temperature</span>
-          <strong>{temperature !== '--' ? `${temperature}°C` : '--'}</strong>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem' }}>
-          <span>💧 Humidity</span>
-          <strong>{humidity !== '--' ? `${humidity}%` : '--'}</strong>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem' }}>
-          <span>🌱 Soil Moisture</span>
-          <strong>{moisture}</strong>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-label">Why this score</div>
-        <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-          Rice Blast ke liye risk tab badhta hai jab humidity 90% se upar ho aur temperature 17-28°C ke beech ho, saath mein 7+ ghante leaf wetness ho.
-        </p>
+        {temperature != null && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.8rem' }}>
+              <span>🌡️ {t('sensor_temp')}</span><strong>{temperature}°C</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.4rem' }}>
+              <span>💧 {t('sensor_humidity')}</span><strong>{humidity}%</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.4rem' }}>
+              <span>🌱 {t('sensor_moisture')}</span><strong>{moisture}</strong>
+            </div>
+            {localEstimate != null && (
+              <p style={{ marginTop: '0.6rem', fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
+                {t('local_estimate_note')} ({localEstimate}/100)
+              </p>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

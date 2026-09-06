@@ -1,106 +1,212 @@
 import { useRef, useState } from 'react'
-import { db } from '../db/database'
+import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { savePrediction } from '../db/indexedDB'
+import { predictDisease } from '../services/api'
+
+const TOTAL_SHOTS = 3;
+// Below this, a shot is flagged as likely blurry. Tuned by eye against a
+// handful of sharp vs. deliberately-blurred test photos -- retune once
+// Akshar has real field images to check this against.
+const BLUR_VARIANCE_THRESHOLD = 18;
+
+/**
+ * Lightweight, dependency-free blur estimate: downsamples the frame, converts
+ * to grayscale, and measures how much pixel-to-pixel variation exists. Sharp,
+ * in-focus leaf texture has high variation; a blurry photo is smoother and
+ * scores lower. This is a real (if simple) stand-in for the Laplacian-variance
+ * quality gate discussed in the implementation plan -- not a full computer-
+ * vision library, but enough to catch an obviously unusable photo before it's
+ * ever sent anywhere.
+ */
+function estimateSharpness(canvas) {
+  const size = 96;
+  const small = document.createElement('canvas');
+  small.width = size;
+  small.height = size;
+  const ctx = small.getContext('2d');
+  ctx.drawImage(canvas, 0, 0, size, size);
+  const { data } = ctx.getImageData(0, 0, size, size);
+
+  const gray = new Float32Array(size * size);
+  for (let i = 0; i < size * size; i++) {
+    const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+    gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+  }
+
+  let sum = 0;
+  let sumSq = 0;
+  let count = 0;
+  for (let y = 1; y < size - 1; y++) {
+    for (let x = 1; x < size - 1; x++) {
+      const idx = y * size + x;
+      const gx = gray[idx + 1] - gray[idx - 1];
+      const gy = gray[idx + size] - gray[idx - size];
+      const grad = Math.sqrt(gx * gx + gy * gy);
+      sum += grad;
+      sumSq += grad * grad;
+      count++;
+    }
+  }
+  const mean = sum / count;
+  const variance = sumSq / count - mean * mean;
+  return variance;
+}
 
 function Camera() {
-  const videoRef = useRef(null)
-  const [stream, setStream] = useState(null)
-  const [capturedImage, setCapturedImage] = useState(null)
-  const [saved, setSaved] = useState(false)
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const videoRef = useRef(null);
+  const [stream, setStream] = useState(null);
+  const [shots, setShots] = useState([]); // array of { dataUrl, sharpness }
+  const [pendingShot, setPendingShot] = useState(null); // shot awaiting accept/retake
+  const [submitting, setSubmitting] = useState(false);
+  const [cameraError, setCameraError] = useState(null);
 
   async function startCamera() {
+    setCameraError(null);
     try {
-      const s = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' } // back camera on phone
-      })
-      setStream(s)
-      setSaved(false)
-      setCapturedImage(null)
-      if (videoRef.current) {
-        videoRef.current.srcObject = s
-      }
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      setStream(s);
+      if (videoRef.current) videoRef.current.srcObject = s;
     } catch (err) {
-      alert('Camera access nahi mil paya: ' + err.message)
+      setCameraError(t('camera_denied'));
     }
   }
 
   function stopCamera() {
     if (stream) {
-      stream.getTracks().forEach(track => track.stop())
-      setStream(null)
+      stream.getTracks().forEach((track) => track.stop());
+      setStream(null);
     }
   }
 
   function capturePhoto() {
-    const video = videoRef.current
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    canvas.getContext('2d').drawImage(video, 0, 0)
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
-    setCapturedImage(dataUrl)
-    stopCamera()
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    const sharpness = estimateSharpness(canvas);
+    stopCamera();
+    setPendingShot({ dataUrl, sharpness, isBlurry: sharpness < BLUR_VARIANCE_THRESHOLD });
   }
 
-  async function saveOffline() {
-    await db.predictions.add({
-      image: capturedImage,
-      timestamp: new Date().toISOString(),
-      syncStatus: 'pending',
+  function acceptShot() {
+    const next = [...shots, pendingShot];
+    setPendingShot(null);
+    setShots(next);
+    if (next.length < TOTAL_SHOTS) {
+      startCamera();
+    }
+  }
+
+  function retakeShot() {
+    setPendingShot(null);
+    startCamera();
+  }
+
+  async function finalizeShots(allShots) {
+    setSubmitting(true);
+    const record = await savePrediction({
+      image: allShots[0].dataUrl,
+      shotCount: allShots.length,
       diseaseLabel: null,
-      confidence: null
-    })
-    setSaved(true)
+      confidence: null,
+    });
+
+    try {
+      const result = await predictDisease(allShots[0].dataUrl, { shot_count: allShots.length });
+      await savePrediction({ ...record, ...result, syncStatus: 'synced' });
+    } catch {
+      // Offline or backend unreachable -- record stays 'pending', App-level
+      // sync logic (or a future background sync) will retry it later.
+    }
+
+    setSubmitting(false);
+    navigate('/result');
   }
 
-  function retake() {
-    setCapturedImage(null)
-    setSaved(false)
-    startCamera()
+  function reset() {
+    setShots([]);
+    setPendingShot(null);
+    stopCamera();
   }
+
+  const progressLabel = t('shot_progress', { current: Math.min(shots.length + 1, TOTAL_SHOTS), total: TOTAL_SHOTS });
 
   return (
-    <div className="page">
-      <h1>Scan Leaf</h1>
-      <p className="page-subtitle">Patte ki clear photo kheenchein</p>
+    <div className="page page-enter">
+      <h1>{t('scan_title')}</h1>
+      <p className="page-subtitle">{t('scan_subtitle')}</p>
 
       <div className="camera-preview">
-        {!capturedImage && <video ref={videoRef} autoPlay playsInline />}
-        {capturedImage && <img src={capturedImage} alt="Captured leaf" />}
+        {stream && !pendingShot && <video ref={videoRef} autoPlay playsInline />}
+        {stream && !pendingShot && <div className="capture-guide" />}
+        {stream && !pendingShot && <span className="shot-counter">{progressLabel}</span>}
+        {pendingShot && <img src={pendingShot.dataUrl} alt="Captured leaf" />}
+        {!stream && !pendingShot && shots.length > 0 && <img src={shots[shots.length - 1].dataUrl} alt="Last captured leaf" />}
       </div>
 
-      {!stream && !capturedImage && (
+      {cameraError && <div className="quality-warning">{cameraError}</div>}
+
+      {pendingShot?.isBlurry && (
+        <div className="quality-warning">
+          {t('quality_warning')}
+        </div>
+      )}
+
+      {!stream && !pendingShot && shots.length === 0 && (
         <button className="btn btn-primary" onClick={startCamera}>
-          📷 Camera Kholo
+          📷 {t('open_camera')}
         </button>
       )}
 
-      {stream && !capturedImage && (
+      {stream && !pendingShot && (
         <button className="btn btn-primary" onClick={capturePhoto}>
-          Photo Kheecho
+          {t('capture')}
         </button>
       )}
 
-      {capturedImage && !saved && (
+      {pendingShot && (
         <div style={{ display: 'flex', gap: '0.6rem' }}>
-          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={retake}>
-            Dobara Lo
+          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={retakeShot}>
+            {t('retake')}
           </button>
-          <button className="btn btn-primary" style={{ flex: 1 }} onClick={saveOffline}>
-            Save Karo
+          <button
+            className={pendingShot.isBlurry ? 'btn btn-danger-outline' : 'btn btn-primary'}
+            style={{ flex: 1 }}
+            onClick={acceptShot}
+          >
+            {pendingShot.isBlurry ? t('use_anyway') : t('use_photo')}
           </button>
         </div>
       )}
 
-      {saved && (
+      {!stream && !pendingShot && shots.length > 0 && shots.length < TOTAL_SHOTS && (
+        <button className="btn btn-primary" onClick={startCamera}>
+          📷 {t('open_camera')}
+        </button>
+      )}
+
+      {!stream && !pendingShot && shots.length === TOTAL_SHOTS && !submitting && (
+        <button className="btn btn-primary" onClick={() => finalizeShots(shots)}>
+          {t('use_photo')}
+        </button>
+      )}
+
+      {submitting && (
         <div className="card">
-          <span className="status-pill status-pending">⏳ Pending Sync</span>
-          <p style={{ marginTop: '0.6rem' }}>
-            Photo save ho gayi. Internet aane pe automatically backend ko bhej di jayegi.
-          </p>
-          <button className="btn btn-secondary" style={{ marginTop: '0.8rem', width: '100%' }} onClick={retake}>
-            Naya Scan Lo
-          </button>
+          <span className="status-pill status-pending pulse">⏳</span>
+          <p style={{ marginTop: '0.6rem' }}>{t('saved_pending')}</p>
         </div>
+      )}
+
+      {(shots.length > 0 || pendingShot) && !submitting && (
+        <button className="btn btn-secondary" style={{ width: '100%', marginTop: '0.7rem' }} onClick={reset}>
+          {t('scan_again')}
+        </button>
       )}
     </div>
   )

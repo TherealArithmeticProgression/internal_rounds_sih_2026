@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { addSensorData } from './db/indexedDB'
 import Home from './pages/Home'
 import Camera from './pages/Camera'
@@ -11,9 +11,24 @@ import { useTranslation } from 'react-i18next'
 
 function App() {
   const { t } = useTranslation();
+  // An offline-first app that never tells the farmer whether it's actually
+  // online is hiding the one piece of state that most affects what they
+  // should expect from it -- this was entirely missing before.
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
-    // Global function for sensor integration
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Global function for sensor integration -- contract unchanged.
     window.receiveSensorData = async (data) => {
       const allowed = ['temperature', 'humidity', 'soil_moisture', 'rainfall_mm'];
       const reading = Object.fromEntries(allowed.filter((key) => Number.isFinite(Number(data?.[key]))).map((key) => [key, Number(data[key])]));
@@ -23,7 +38,6 @@ function App() {
       if (reading.rainfall_mm != null && reading.rainfall_mm < 0) throw new RangeError('Rainfall cannot be negative.');
       if (data?.recorded_at) reading.recorded_at = new Date(data.recorded_at).toISOString();
       await addSensorData(reading);
-      // Could dispatch a custom event here so React components can react instantly
       window.dispatchEvent(new CustomEvent('sensorDataUpdated', { detail: reading }));
     };
     return () => { delete window.receiveSensorData; };
@@ -31,9 +45,10 @@ function App() {
 
   return (
     <BrowserRouter>
-      <div className="app-shell" style={{ backgroundColor: '#f0f5f1', minHeight: '100vh', color: '#1f4620' }}>
-        <div className="topbar" style={{ backgroundColor: '#1f4620', color: 'white', padding: '15px', textAlign: 'center', fontSize: '24px', fontWeight: 'bold' }}>
+      <div className="app-shell">
+        <div className="topbar">
           <div className="topbar-title">🌿 CropGuard</div>
+          <span className="offline-pill">{isOnline ? t('online') : t('offline')}</span>
         </div>
 
         <Routes>
@@ -45,20 +60,20 @@ function App() {
           <Route path="/settings" element={<Settings />} />
         </Routes>
 
-        <nav className="bottom-nav" style={{ backgroundColor: '#ffffff', borderTop: '2px solid #1f4620' }}>
-          <NavLink to="/" end className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
+        <nav className="bottom-nav">
+          <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             <span className="nav-icon">🏠</span>{t('home')}
           </NavLink>
-          <NavLink to="/camera" className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
+          <NavLink to="/camera" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             <span className="nav-icon">📷</span>{t('scan')}
           </NavLink>
-          <NavLink to="/risk-score" className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
+          <NavLink to="/risk-score" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             <span className="nav-icon">⚠️</span>{t('risk')}
           </NavLink>
-          <NavLink to="/result" className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
+          <NavLink to="/result" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             <span className="nav-icon">📋</span>{t('result')}
           </NavLink>
-          <NavLink to="/settings" className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
+          <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             <span className="nav-icon">⚙️</span>{t('settings')}
           </NavLink>
         </nav>

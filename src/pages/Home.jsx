@@ -1,99 +1,113 @@
 import { useEffect, useState } from 'react'
-import { db } from '../db/database'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { getRecentPredictions, getPendingPredictions, getCachedRiskScores } from '../db/indexedDB'
+
+const BAND_ORDER = { low: 0, moderate: 1, high: 2, critical: 3 };
+
+function formatTime(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('en-IN', {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+  });
+}
 
 function Home() {
-  const [scans, setScans] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { t } = useTranslation();
+  const [scans, setScans] = useState([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [topRisk, setTopRisk] = useState(null); // { disease, score, band }
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function loadScans() {
-      // Sabse recent 5 scans nikaalo, naye se purane order mein
-      const all = await db.predictions.orderBy('timestamp').reverse().limit(5).toArray()
-      setScans(all)
-      setLoading(false)
+    let cancelled = false;
+
+    async function load() {
+      const [recent, pending, riskScores] = await Promise.all([
+        getRecentPredictions(5),
+        getPendingPredictions(),
+        getCachedRiskScores(),
+      ]);
+      if (cancelled) return;
+
+      setScans(recent);
+      setPendingCount(pending.length);
+
+      if (riskScores.length > 0) {
+        const worst = riskScores.reduce((a, b) =>
+          (BAND_ORDER[b.band] ?? 0) > (BAND_ORDER[a.band] ?? 0) ? b : a
+        );
+        setTopRisk(worst);
+      }
+      setLoading(false);
     }
-    loadScans()
-  }, [])
 
-  const pendingCount = scans.filter(s => s.syncStatus === 'pending').length
+    load();
+    // Sensor readings can update risk in the background -- refresh when they do.
+    window.addEventListener('sensorDataUpdated', load);
+    return () => { cancelled = true; window.removeEventListener('sensorDataUpdated', load); };
+  }, []);
 
-  function formatTime(isoString) {
-    const date = new Date(isoString)
-    return date.toLocaleString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
+  const bandClass = topRisk ? `level-${topRisk.band}` : 'level-low';
+  const bandIcon = { low: '✅', moderate: '👀', high: '⚠️', critical: '🚨' }[topRisk?.band] || '✅';
 
   return (
-    <div className="page">
-      <h1>Dashboard</h1>
-      <p className="page-subtitle">Aapke farm ka live overview</p>
+    <div className="page page-enter">
+      <h1>{t('home_title')}</h1>
+      <p className="page-subtitle">{t('home_subtitle')}</p>
 
-      <div className="card">
-        <div className="card-label">Current Risk</div>
-        <p>Koi active alert nahi hai abhi</p>
+      <div className={`alert-banner ${bandClass}`}>
+        <span className="alert-icon">{bandIcon}</span>
+        <div>
+          <div className="alert-title">
+            {topRisk && BAND_ORDER[topRisk.band] >= 2
+              ? `${topRisk.disease} — ${topRisk.band}`
+              : t('all_clear_title')}
+          </div>
+          <div className="alert-body">
+            {topRisk ? topRisk.explanation : t('all_clear_body')}
+          </div>
+        </div>
       </div>
 
       {pendingCount > 0 && (
         <div className="card">
-          <div className="card-label">Sync Status</div>
-          <span className="status-pill status-pending">
-            ⏳ {pendingCount} scan{pendingCount > 1 ? 's' : ''} pending sync
+          <div className="card-label">{t('recent_scans')}</div>
+          <span className="status-pill status-pending pulse">
+            ⏳ {pendingCount === 1 ? t('pending_sync_one') : t('pending_sync_many', { count: pendingCount })}
           </span>
         </div>
       )}
 
       <div className="card">
-        <div className="card-label">Recent Scans</div>
+        <div className="card-label">{t('recent_scans')}</div>
 
-        {loading && <p style={{ color: 'var(--text-muted)' }}>Loading...</p>}
+        {loading && <p style={{ color: 'var(--ink-muted)' }}>…</p>}
 
         {!loading && scans.length === 0 && (
-          <p style={{ color: 'var(--text-muted)' }}>Koi scan nahi hua abhi tak</p>
-        )}
-
-        {!loading && scans.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem', marginTop: '0.5rem' }}>
-            {scans.map(scan => (
-              <div
-                key={scan.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.7rem',
-                  paddingBottom: '0.7rem',
-                  borderBottom: '1px solid var(--border)'
-                }}
-              >
-                <img
-                  src={scan.image}
-                  alt="scan"
-                  style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover' }}
-                />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '0.85rem' }}>
-                    {scan.diseaseLabel || 'Analysis pending'}
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {formatTime(scan.timestamp)}
-                  </div>
-                </div>
-                <span className={`status-pill ${scan.syncStatus === 'synced' ? 'status-synced' : 'status-pending'}`}>
-                  {scan.syncStatus === 'synced' ? '✓ Synced' : '⏳ Pending'}
-                </span>
-              </div>
-            ))}
+          <div className="empty-state">
+            <div className="empty-icon">🌱</div>
+            <p>{t('no_scans_yet')}</p>
           </div>
         )}
+
+        {!loading && scans.map((scan) => (
+          <div className="list-row" key={scan.clientId}>
+            <img className="list-thumb" src={scan.image} alt="" />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '0.9rem' }}>{scan.diseaseLabel || t('analysis_pending')}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>{formatTime(scan.createdAt)}</div>
+            </div>
+            <span className={`status-pill ${scan.syncStatus === 'synced' ? 'status-synced' : 'status-pending'}`}>
+              {scan.syncStatus === 'synced' ? `✓` : `⏳`}
+            </span>
+          </div>
+        ))}
       </div>
 
-      {scans.length === 0 && !loading && (
-        <Link to="/camera" className="btn btn-primary" style={{ textDecoration: 'none', display: 'block', textAlign: 'center' }}>
-          📷 Pehla Scan Lo
+      {!loading && scans.length === 0 && (
+        <Link to="/camera" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+          📷 {t('first_scan_cta')}
         </Link>
       )}
     </div>

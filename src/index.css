@@ -1,16 +1,32 @@
 :root {
-  --primary: #1f4620;
-  --primary-light: #2d5f2e;
-  --accent: #8bc34a;
-  --accent-dark: #6a9c39;
-  --bg: #0f1410;
-  --surface: #1a211a;
-  --surface-light: #232b23;
-  --text: #f0f2ec;
-  --text-muted: #a3ada0;
-  --border: #2e392e;
-  --danger: #d9534f;
-  --warning: #e0a72e;
+  /* Brand — vine green, carried over from the original identity */
+  --vine: #2c5e2e;
+  --vine-deep: #1b3d1d;
+  --vine-soft: #e4ecdd;
+
+  /* Status scale — modeled on how a tomato actually ripens:
+     green (unripe/safe) -> gold (turning/watch) -> red (ripe/act now) */
+  --leaf: #6fa83d;
+  --leaf-soft: #e4f0d6;
+  --turmeric: #c98a1f;
+  --turmeric-soft: #fbedd1;
+  --tomato: #b93c24;
+  --tomato-soft: #f6ddd5;
+
+  /* Surfaces — light, high-contrast, legible in direct sunlight */
+  --bg: #f4f6ee;
+  --surface: #ffffff;
+  --surface-alt: #ecefe2;
+  --border: #dbe0d0;
+
+  /* Text */
+  --ink: #1f2a1d;
+  --ink-muted: #5b6555;
+  --ink-on-dark: #f4f6ee;
+
+  --focus-ring: #2c5e2e;
+  --radius-md: 14px;
+  --radius-lg: 20px;
 }
 
 * {
@@ -19,11 +35,41 @@
   padding: 0;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   background: var(--bg);
-  color: var(--text);
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  color: var(--ink);
+  /* One system stack, chosen deliberately: covers Latin + Devanagari + Gurmukhi +
+     Bengali + Tamil using the fonts already shipped on Android/iOS, so text renders
+     correctly across all five languages with zero webfont download — important for
+     users on slow or metered connections. */
+  font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Devanagari",
+    "Noto Sans Gurmukhi", "Noto Sans Bengali", "Noto Sans Tamil", sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
   min-height: 100vh;
+}
+
+button, input, select {
+  font-family: inherit;
+}
+
+/* Visible keyboard focus everywhere — required for anyone navigating without
+   a mouse, and genuinely useful for older Android devices with flaky touch response. */
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .app-shell {
@@ -37,50 +83,122 @@ body {
 
 /* Top bar */
 .topbar {
-  padding: 1.25rem 1.25rem 1rem;
-  border-bottom: 1px solid var(--border);
+  background: var(--vine);
+  color: var(--ink-on-dark);
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .topbar-title {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  color: var(--accent);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
+}
+
+.offline-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
 }
 
 /* Page content */
 .page {
   flex: 1;
-  padding: 1.5rem 1.25rem 6rem;
+  padding: 1.5rem 1.25rem 6.5rem;
 }
 
 .page h1 {
   font-size: 1.6rem;
-  margin-bottom: 0.4rem;
+  font-weight: 700;
+  margin-bottom: 0.3rem;
 }
 
 .page-subtitle {
-  color: var(--text-muted);
+  color: var(--ink-muted);
   font-size: 0.95rem;
   margin-bottom: 1.5rem;
 }
 
-/* Cards */
+/* Generic card — used for secondary/quiet content, not everything */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   padding: 1.1rem;
   margin-bottom: 0.9rem;
 }
 
 .card-label {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--accent);
+  font-size: 0.8rem;
+  color: var(--ink-muted);
   font-weight: 600;
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.35rem;
+}
+
+/* Alert banner — deliberately NOT a generic card. Full-bleed, color-coded,
+   the single boldest element on the Home screen when something needs attention. */
+.alert-banner {
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.3rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+}
+
+.alert-banner.level-low {
+  background: var(--leaf-soft);
+  color: var(--vine-deep);
+}
+.alert-banner.level-moderate {
+  background: var(--turmeric-soft);
+  color: #6b4a0f;
+}
+.alert-banner.level-high,
+.alert-banner.level-critical {
+  background: var(--tomato-soft);
+  color: #7a2415;
+}
+
+.alert-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.alert-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin-bottom: 0.2rem;
+}
+
+.alert-body {
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+/* Plain list rows — for scan history etc. Not every list needs to be a card. */
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.list-row:last-child {
+  border-bottom: none;
+}
+
+.list-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--surface-alt);
+  flex-shrink: 0;
 }
 
 /* Buttons */
@@ -91,11 +209,12 @@ body {
   gap: 0.5rem;
   border: none;
   border-radius: 12px;
-  padding: 0.85rem 1.4rem;
+  padding: 0.9rem 1.4rem;
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.1s ease, opacity 0.2s ease;
+  min-height: 48px; /* accessible touch target */
+  transition: transform 0.12s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
 .btn:active {
@@ -103,15 +222,24 @@ body {
 }
 
 .btn-primary {
-  background: var(--accent);
-  color: #12200f;
+  background: var(--vine);
+  color: var(--ink-on-dark);
   width: 100%;
+}
+.btn-primary:hover {
+  background: var(--vine-deep);
 }
 
 .btn-secondary {
-  background: var(--surface-light);
-  color: var(--text);
+  background: var(--surface);
+  color: var(--ink);
   border: 1px solid var(--border);
+}
+
+.btn-danger-outline {
+  background: transparent;
+  color: var(--tomato);
+  border: 1px solid var(--tomato);
 }
 
 .btn:disabled {
@@ -119,7 +247,16 @@ body {
   cursor: not-allowed;
 }
 
-/* Bottom nav */
+.btn-icon {
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 12px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  color: var(--ink);
+}
+
+/* Bottom nav — min 48px targets throughout */
 .bottom-nav {
   position: fixed;
   bottom: 0;
@@ -131,37 +268,43 @@ body {
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: space-around;
-  padding: 0.6rem 0 0.8rem;
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
 .nav-link {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.2rem;
+  justify-content: center;
+  gap: 0.15rem;
   text-decoration: none;
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  font-weight: 500;
-  padding: 0.3rem 0.6rem;
-  border-radius: 8px;
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  min-height: 56px;
   transition: color 0.15s ease;
 }
 
 .nav-link.active {
-  color: var(--accent);
+  color: var(--vine);
 }
 
 .nav-icon {
   font-size: 1.3rem;
+  transition: transform 0.2s ease;
+}
+
+.nav-link.active .nav-icon {
+  transform: translateY(-2px);
 }
 
 /* Camera */
 .camera-preview {
   width: 100%;
   aspect-ratio: 3/4;
-  background: #000;
-  border-radius: 16px;
+  background: #10150e;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   position: relative;
   margin-bottom: 1rem;
@@ -174,111 +317,160 @@ body {
   object-fit: cover;
 }
 
+.capture-guide {
+  position: absolute;
+  inset: 12%;
+  border: 3px dashed rgba(255, 255, 255, 0.75);
+  border-radius: 50% / 40%;
+  pointer-events: none;
+}
+
+.shot-counter {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+}
+
+.quality-warning {
+  background: var(--turmeric-soft);
+  color: #6b4a0f;
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1rem;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+/* Status pills */
 .status-pill {
   display: inline-block;
   padding: 0.25rem 0.7rem;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
+  white-space: nowrap;
 }
-
 .status-pending {
-  background: rgba(224, 167, 46, 0.15);
-  color: var(--warning);
+  background: var(--turmeric-soft);
+  color: #6b4a0f;
 }
-
+.status-pending.pulse {
+  animation: pulse 1.6s ease-in-out infinite;
+}
 .status-synced {
-  background: rgba(139, 195, 74, 0.15);
-  color: var(--accent);
-}
-/* Page fade-in animation - zyada visible */
-.page {
-  animation: fadeSlideIn 0.5s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-@keyframes fadeSlideIn {
-  from { opacity: 0; transform: translateY(24px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Cards - staggered entrance, ek ek karke aayenge */
-.card {
-  animation: fadeSlideIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
-  transition: border-color 0.2s ease, transform 0.15s ease;
-}
-
-.card:nth-child(1) { animation-delay: 0.05s; }
-.card:nth-child(2) { animation-delay: 0.15s; }
-.card:nth-child(3) { animation-delay: 0.25s; }
-
-.card:active {
-  transform: scale(0.97);
-}
-
-/* Buttons - zyada obvious press feedback */
-.btn {
-  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
-}
-
-.btn-primary {
-  box-shadow: 0 4px 14px rgba(139, 195, 74, 0.25);
-}
-
-.btn:active {
-  transform: scale(0.94);
-}
-
-.btn-primary:hover {
-  background: var(--accent-dark);
-  box-shadow: 0 6px 18px rgba(139, 195, 74, 0.35);
-}
-
-/* Topbar logo - halki si pulse taaki "live" feel aaye */
-.topbar-title {
-  animation: fadeSlideIn 0.4s ease;
-}
-
-/* Bottom nav - bouncy active state */
-.nav-link {
-  position: relative;
-  transition: color 0.25s ease;
-}
-
-.nav-icon {
-  display: inline-block;
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.nav-link.active .nav-icon {
-  transform: scale(1.3) translateY(-4px);
-}
-
-.nav-link.active::after {
-  content: '';
-  position: absolute;
-  bottom: -8px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: dotPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-@keyframes dotPop {
-  from { transform: scale(0); }
-  to { transform: scale(1); }
-}
-
-/* Status pill - zyada visible pulse */
-.status-pending {
-  animation: pulse 1.5s infinite;
+  background: var(--leaf-soft);
+  color: var(--vine-deep);
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.03); }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
-.camera-preview {
-  animation: fadeSlideIn 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+/* Risk dial — its own distinct circular treatment, not a card */
+.risk-dial {
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1rem;
+  border: 10px solid var(--border);
+  transition: border-color 0.4s ease;
+}
+
+.risk-dial .score {
+  font-size: 2.2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.risk-dial .max {
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+  margin-top: 0.1rem;
+}
+
+/* Confidence meter */
+.confidence-track {
+  flex: 1;
+  height: 10px;
+  background: var(--surface-alt);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.confidence-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+
+/* Disease risk list rows on the Risk page */
+.disease-row {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.7rem;
+  cursor: pointer;
+}
+.disease-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.disease-name {
+  font-weight: 700;
+}
+.disease-score-badge {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+.disease-why {
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+  margin-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+}
+
+/* Language picker rows */
+.option-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  min-height: 48px;
+}
+.option-row:last-child { border-bottom: none; }
+
+.empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--ink-muted);
+}
+.empty-state .empty-icon {
+  font-size: 2.2rem;
+  margin-bottom: 0.6rem;
+}
+
+/* The one deliberate motion moment: content settles in on first load only. */
+.page-enter {
+  animation: settleIn 0.35s ease-out;
+}
+@keyframes settleIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }

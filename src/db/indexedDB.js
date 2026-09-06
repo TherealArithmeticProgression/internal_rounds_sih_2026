@@ -20,9 +20,16 @@ export async function initDB() {
         predictions.createIndex('by-created-at', 'createdAt');
         predictions.createIndex('by-sync-status', 'syncStatus');
       }
+      // New in this pass: cached multi-disease risk scores, so the Risk page
+      // has something real to show offline instead of a hardcoded number.
+      if (!db.objectStoreNames.contains('riskScores')) {
+        db.createObjectStore('riskScores', { keyPath: 'disease' });
+      }
     },
   });
 }
+
+// --- Existing exports, unchanged signatures ---
 
 export async function setPreference(key, value) {
   const db = await initDB();
@@ -41,17 +48,57 @@ export async function addSensorData(data) {
 
 export async function savePrediction(prediction) {
   const db = await initDB();
-  return db.put('predictions', prediction);
+  // clientId is required by the keyPath -- generate one if the caller didn't
+  // supply it, so every save is guaranteed to work and dedupe correctly on sync.
+  const record = {
+    clientId: prediction.clientId || `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: prediction.createdAt || new Date().toISOString(),
+    syncStatus: prediction.syncStatus || 'pending',
+    ...prediction,
+  };
+  await db.put('predictions', record);
+  return record;
 }
 
 export async function getRecentPredictions(limit = 5) {
   const db = await initDB();
   const all = await db.getAll('predictions');
-  return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  return all.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, limit);
 }
 
 export async function getLatestSensorData() {
   const db = await initDB();
   const all = await db.getAll('sensorData');
   return all.length > 0 ? all[all.length - 1] : null;
+}
+
+// --- New exports (additive only -- nothing above was renamed or removed) ---
+
+export async function getPendingPredictions() {
+  const db = await initDB();
+  const all = await db.getAll('predictions');
+  return all.filter((p) => p.syncStatus === 'pending');
+}
+
+export async function markPredictionSynced(clientId, serverResult = {}) {
+  const db = await initDB();
+  const existing = await db.get('predictions', clientId);
+  if (!existing) return null;
+  const updated = { ...existing, ...serverResult, syncStatus: 'synced' };
+  await db.put('predictions', updated);
+  return updated;
+}
+
+export async function saveRiskScores(riskResults) {
+  // riskResults: array of { disease, score, band, explanation, updatedAt }
+  const db = await initDB();
+  const tx = db.transaction('riskScores', 'readwrite');
+  await Promise.all(riskResults.map((r) => tx.store.put({ ...r, updatedAt: r.updatedAt || new Date().toISOString() })));
+  await tx.done;
+  return riskResults;
+}
+
+export async function getCachedRiskScores() {
+  const db = await initDB();
+  return db.getAll('riskScores');
 }

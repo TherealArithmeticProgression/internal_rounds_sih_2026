@@ -1,19 +1,15 @@
-// Ye file temporary hai - jab backend ready ho, in exports ko
-// real API calls se replace kar denge (fetch/axios)
+// Kept as a dev-time fallback only. No page imports this anymore -- Result.jsx
+// and RiskScore.jsx now read real data from IndexedDB / the API. Useful if
+// you want to stub the UI before the backend endpoints are live.
 
 export const mockRiskScore = {
   score: 22,
-  level: 'low', // 'low' | 'medium' | 'high'
-  message: 'Abhi conditions safe hain',
-  sensors: {
-    temperature: 26,
-    humidity: 68,
-    soilMoisture: 'Moderate'
-  }
-}
+  level: 'low',
+  message: 'Conditions currently look safe',
+};
 
 export const mockPrediction = {
-  disease: 'Bacterial Leaf Blight',
+  disease: 'Bacterial Leaf Spot',
   confidence: 87,
-  treatment: 'Copper-based bactericide spray karein. Affected leaves hata dein aur field mein paani ka bahav sudharein.'
-}
+  treatment: 'Apply a copper-based bactericide. Remove affected leaves and improve field drainage.',
+};
