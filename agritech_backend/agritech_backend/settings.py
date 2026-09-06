@@ -39,6 +39,12 @@ ALLOWED_HOSTS = [
     "127.0.0.1",
 ]
 
+SPECTACULAR_SETTINGS = {
+    "TITLE": "AgriTech API",
+    "DESCRIPTION": "AgriTech Backend API",
+    "VERSION": "1.0.0",
+    "COMPONENT_SPLIT_REQUEST": True,
+}
 
 # Application definition
 

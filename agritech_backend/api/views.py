@@ -1,7 +1,8 @@
 import base64
 from django.core.files.base import ContentFile
 from rest_framework import views, response, status , viewsets
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiRequest
+from drf_spectacular.types import OpenApiTypes
 import numpy as np
 import onnxruntime as ort
 from PIL import Image
@@ -94,8 +95,11 @@ class PredictView(views.APIView):
             )
 
         try:
-            format, imgstr = image_data.split(";base64,")
-            image_bytes = base64.b64decode(imgstr)
+            if hasattr(image_data, "read"):
+                image_bytes = image_data.read()
+            else:
+                format, imgstr = image_data.split(";base64,", 1)
+                image_bytes = base64.b64decode(imgstr)
 
             # Convert image to model input
             image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -107,9 +111,9 @@ class PredictView(views.APIView):
 
             # Load ONNX model
             model_path = os.path.join(
-                settings.BASE_DIR.parent,
-                "weights",
-                "weights_final_.onnx"
+            settings.BASE_DIR,
+            "weights",
+            "weights_final_.onnx"
             )
 
             session = ort.InferenceSession(model_path)
